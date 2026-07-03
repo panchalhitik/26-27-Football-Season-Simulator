@@ -1,0 +1,38 @@
+preferred position, age, club, and contract end date for ~18,000 players. You filter down
+to your six clubs plus a buyable pool. Search Kaggle for "EA FC 24 / FIFA complete
+player dataset." This is what I'd build on.
+2. API-Football (api-sports.io) — a proper REST API with a free tier that gives you real,
+current squads and fixtures. Better for "real and up to date" but it doesn't hand you a
+single rating number, so you'd pair it with the FIFA data for ratings.
+3. Football-Data.org — free API, great for the league scaffolding (teams, fixtures,
+standings) that your season sim plays through, though no player ratings.
+4. Transfermarkt — the best real market values and contracts, but scraping it violates their
+terms of service, so I wouldn't rely on it as your pipeline. There are community wrapper
+projects but tread carefully.
+One honest caveat: this data (player names, EA's ratings) is fine for a personal, non-commercial
+fan project, which is what TITSS is. If you ever wanted to monetize, the licensing picture
+changes and you'd want generic/fictional data instead.
+The pipeline itself is a single Python script: load the Kaggle CSV with pandas, keep only the
+columns you need, filter to your clubs and a transfer pool, maybe normalize values into a sane
+budget scale, then df.to_json() into players.json and clubs.json. Commit those to
+the repo. That's the entire "backend."
+The simulation model
+There are really two models, and keeping them separate (and transparent, per the original's
+ethos) is the whole game.
+Negotiation model — a set of pure functions, no AI needed. When you bid on a player, the
+selling club's response is a function of: the player's market value, his age and contract years left
+(a player with one year left is cheap; a 22-year-old with four years is expensive), how important
+he is to that club, and your offer relative to all that. Output is accept / reject / counter-offer. Then
+a second step negotiates wages with the player himself. Because every input is visible, you can
+show the player exactly why a bid failed — that transparency is the appeal.
+Season simulation — the well-trodden approach is a Poisson model (the refined version is
+Dixon–Coles, which is worth searching). Each team gets an attack strength and a defense
+strength derived from aggregating its final squad's ratings by position. For any match, those
+combine into an expected number of goals for each side; you draw actual scorelines from a
+Poisson distribution. Run the whole fixture list, tally points, get a table. Then wrap that in a
+Monte Carlo loop — simulate the season a few thousand times — so instead of one fluky result
+you show a distribution: "you finish top 4 in 63% of simulations." That probabilistic output is what
+makes it feel like "real consequences" rather than a coin flip. All of this runs in a web worker in
+the browser so the UI doesn't freeze.
+The nice property: both models are just math you can tune. You can expose the knobs, explain
+them, and let players see the machinery — which is exactly what "transparent" implies.

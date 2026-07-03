@@ -1,0 +1,10 @@
+Good — that gave me the genre context. Combined with the page's own description, here's
+what we're cloning: a browser game where you take over one of six top European clubs for the
+summer 2026 window, work through a database of 3,300+ real players, negotiate transfers
+in/out against a budget, then watch the season play out based on the squad you built.
+"Transparent negotiations, real consequences."
+The single most important architectural insight: this needs no backend. It's a static single-page
+app. The player data is a one-time static dataset, and both the negotiation logic and the season
+simulation are just math running in the browser. That makes it cheap, fast, and a great
+vibe-coding target. Everything below follows from that.
+Let me give you the architecture picture first, then walk each piece.

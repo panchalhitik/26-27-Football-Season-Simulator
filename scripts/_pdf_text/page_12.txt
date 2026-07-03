@@ -1,0 +1,35 @@
+Here's the whole system on one page — the key thing to notice is that the left-to-right pipeline at
+the top happens once on your machine, and everything in the blue/coral box is just static files
+running in the player's browser. No server, no database, no running costs.
+V
+visualize
+V
+visualize show_widget
+Now the walkthrough of each piece.
+The tech stack (your tools)
+For a project like this, keep the stack boring and well-documented so the AI coding tools have
+lots to draw on:
+● Frontend: React + Vite with TypeScript. Vite over Next.js because you don't need a
+server — a static build is exactly right. TypeScript matters here specifically because your
+player data has a fixed shape (rating, value, wage, position…), and typing that shape
+catches a huge class of bugs and makes the AI generate correct code.
+● Styling: Tailwind CSS. Since you want a different design, Tailwind gives you total
+freedom without fighting a component library's defaults. Optionally add shadcn/ui for
+prebuilt tables/dialogs you then restyle.
+● State: Zustand. A transfer game is essentially one big state object (your budget, your
+squad, players you've bid on, the clock). Zustand handles this with far less ceremony
+than Redux, and it's trivial to persist to localStorage so a refresh doesn't wipe
+someone's window.
+● Data prep: Python + pandas, run once on your laptop. This never ships to the browser.
+● Repo + hosting: GitHub + Vercel (or Netlify / Cloudflare Pages). All free for this.
+The "vibe coding" interface is your choice of: Cursor or Claude Code (best when you're editing
+a real repo and want the AI to see your whole codebase), v0 (great for generating the UI
+screens fast, which you then pull into the repo), or bolt.new / Lovable (good for scaffolding the
+whole thing from a single prompt to get moving). A common workflow is bolt/v0 to get a
+skeleton, then Cursor/Claude Code to build the actual game logic where precision matters.
+Where to get the data
+This is the make-or-break part, because "3,300+ players with real squads" means you need
+overall ratings, market value, wage, position, age, club, and contract length all in one place.
+Your realistic options, best first:
+1. FIFA / EA Sports FC dataset on Kaggle (derived from SoFIFA). This is the standard
+source for exactly this kind of project — it has overall rating, potential, value in €, wage,

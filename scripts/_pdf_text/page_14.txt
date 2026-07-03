@@ -1,0 +1,34 @@
+How it all connects
+Following the diagram: the Python pipeline runs once and produces JSON, which you commit
+alongside your app code to one GitHub repo. On app load, the React app fetches those JSON
+files and hydrates the Zustand store. Every user action (a bid, a sale) runs through the
+negotiation functions and updates the store; the store auto-saves to localStorage. When the
+window closes, you lock the squads and hand them to the season-sim worker, which returns the
+finishing distribution to a results screen. There's no API call anywhere in the live app — it's all
+static files plus in-browser computation, which is why it's free to host and fast.
+GitHub and hosting
+Initialize a repo locally (git init), push it to GitHub, then connect that repo to Vercel — it
+auto-detects Vite, and from then on every git push triggers a rebuild and redeploy
+automatically. You get a free *.vercel.app URL immediately, and you can point a custom
+domain at it later (the original uses one). Netlify and Cloudflare Pages work identically; pick
+whichever you like. GitHub Pages also works for a pure static Vite build but the config is slightly
+fussier, so Vercel is the path of least resistance.
+A build roadmap (MVP first)
+I'd sequence it so you have something playable as early as possible:
+1. Data + types. Run the pipeline, get players.json, and write the TypeScript types for
+a Player and a Club. Do this before any UI — it anchors everything the AI generates
+afterward.
+2. Squad viewer. App scaffold + a screen that loads the JSON and lets you browse/filter
+the six clubs and their players. No game logic yet, just proof the data flows.
+3. The transfer loop. Add budget, the negotiation functions, and buy/sell with
+localStorage persistence. This is the core game; spend the most care here.
+4. Season sim. Build the Poisson + Monte Carlo engine in a web worker and a results
+screen showing the distribution.
+5. Design + polish. Now that it works, do your distinct visual identity, plus a shareable
+seed/link so people can compare runs (the original leans on shareability).
+6. Deploy to Vercel and wire a domain if you want one.
+For the vibe-coding itself, the single biggest lever is to define the data schema first and feed it
+to the AI as context — once the model knows the exact shape of a Player and the game state,
+its generated logic is far more reliable. Build in the vertical slices above rather than asking for
+the whole app at once; "generate the negotiation engine given these types and these rules"
+produces much better output than "build me a football transfer game."

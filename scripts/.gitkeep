@@ -1,0 +1,5 @@
+Offline build pipeline (run once on your machine):
+  - ingest the FIFA/EA CSV from data-raw/
+  - filter to the 6 target clubs, clean fields, trim columns
+  - emit src/data/*.json (players.json, clubs.json, ratings.json)
+Node + TS, not bundled into the app.
