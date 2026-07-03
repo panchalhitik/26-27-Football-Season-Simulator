@@ -39,6 +39,20 @@ export function gaussian(rng: SeededRNG, mean = 0, stddev = 1): number {
 }
 
 /**
+ * Derive an independent child seed from a base seed and a string label
+ * (FNV-1a). Lets one season seed spawn per-team / per-competition RNG
+ * streams that never interfere with the main match-sampling stream.
+ */
+export function hashSeed(base: number, label: string): number {
+  let h = (2166136261 ^ base) >>> 0;
+  for (let i = 0; i < label.length; i++) {
+    h ^= label.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h;
+}
+
+/**
  * Knuth's Poisson sampler — adequate for the small lambdas (~0.5..3) we use.
  * Returns a non-negative integer.
  */

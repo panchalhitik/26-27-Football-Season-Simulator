@@ -12,6 +12,7 @@ import type {
 } from '@/types';
 import { mulberry32 } from '@/engine/rng';
 import { CUP_ROUND_RANK, simulateUserCupRun, type CupKind } from './cups';
+import { leagueAverages } from './season';
 
 const H1_MONTHS = new Set(['AUG', 'SEP', 'OCT', 'NOV', 'DEC']);
 
@@ -120,13 +121,16 @@ export function finalReport(input: {
 }): FinalReport {
   const { season, club, strengths, seed } = input;
 
-  // Build the opponent strength pool for cups.
-  const userS = strengths.find((s) => s.clubId === club.id);
-  const userStrength = userS ? userS.attack + userS.defense : 150;
+  // Build the opponent pool for cups from the same strengths as the league sim.
+  const userS: TeamStrength =
+    strengths.find((s) => s.clubId === club.id) ??
+    { clubId: club.id, attack: 75, defense: 75, homeBoost: 5 };
   const allOpponents = strengths.filter((s) => s.clubId !== club.id);
-  const domesticPool = allOpponents.map((s) => s.attack + s.defense);
-  // UCL — only the top 8 strongest teams from this league represent the elite pool.
-  const eliteCutoff = [...domesticPool].sort((a, b) => b - a).slice(0, 8);
+  // UCL — the elite pool is the top 8 strongest sides (stand-ins for Europe's best).
+  const elitePool = [...allOpponents]
+    .sort((a, b) => (b.attack + b.defense) - (a.attack + a.defense))
+    .slice(0, 8);
+  const avg = leagueAverages(strengths);
 
   const outcomes = club.objectives.map((o) => {
     if (o.kind === 'PL') {
@@ -138,12 +142,12 @@ export function finalReport(input: {
     }
     // Each cup gets its own deterministic RNG stream derived from seed + cup name.
     const cupSeed = (seed ^ hashString(o.kind)) >>> 0;
-    const pool = cup === 'UCL' ? eliteCutoff : domesticPool;
     const run = simulateUserCupRun({
       rng: mulberry32(cupSeed),
       cup,
-      userStrength,
-      opponentStrengths: pool,
+      user: userS,
+      opponents: cup === 'UCL' ? elitePool : allOpponents,
+      leagueAvg: avg,
     });
     return {
       objective: o,
@@ -155,12 +159,18 @@ export function finalReport(input: {
   const metCount = outcomes.filter((o) => o.outcome === 'met' || o.outcome === 'exceeded').length;
   const total = Math.max(1, outcomes.length);
   const ratio = metCount / total;
-  const grade: FinalReport['grade'] =
+  let grade: FinalReport['grade'] =
     ratio === 1 && season.userPosition === 1 ? 'S' :
     ratio === 1 ? 'A' :
     ratio >= 0.75 ? 'B' :
     ratio >= 0.5 ? 'C' :
     ratio > 0 ? 'D' : 'F';
+
+  // Cup runs are lotteries — league form is the season's backbone. Meeting the
+  // league objective floors the grade at C; a title floors it at B.
+  const plOutcome = outcomes.find((o) => o.objective.kind === 'PL')?.outcome;
+  if (plOutcome && plOutcome !== 'missed' && (grade === 'D' || grade === 'F')) grade = 'C';
+  if (season.userPosition === 1 && (grade === 'C' || grade === 'D' || grade === 'F')) grade = 'B';
 
   const ownerVerdict: ManagerVerdict =
     grade === 'S' || grade === 'A' ? 'EXTENDED' :

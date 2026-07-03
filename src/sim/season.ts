@@ -1,4 +1,4 @@
-import { mulberry32 } from '@/engine/rng';
+import { gaussian, hashSeed, mulberry32 } from '@/engine/rng';
 import type {
   FixtureResult,
   LeagueRow,
@@ -9,7 +9,19 @@ import type {
 import { simulateFixture } from './poisson';
 import { managerMu, tacticalEffectiveness } from '@/engine/manager';
 import { tauTempo, tauTilt } from './tactics';
-import { USE_DIXON_COLES } from './balance';
+import {
+  FORM_MOMENTUM_CAP,
+  FORM_MOMENTUM_RHO,
+  FORM_MOMENTUM_STEP,
+  FORM_SEASON_CAP,
+  FORM_SEASON_SIGMA,
+  FORM_TOTAL_CAP,
+  MOTIVATION_RELEGATION,
+  MOTIVATION_SAFE_SLUMP,
+  MOTIVATION_TITLE_RACE,
+  MOTIVATION_WINDOW,
+  USE_DIXON_COLES,
+} from './balance';
 
 const MONTHS: FixtureResult['month'][] = [
   'AUG', 'SEP', 'OCT', 'NOV', 'DEC', 'JAN', 'FEB', 'MAR', 'APR', 'MAY',
@@ -102,6 +114,83 @@ export function leagueAverages(strengths: TeamStrength[]): { attack: number; def
   return { attack: a / strengths.length, defense: d / strengths.length };
 }
 
+/**
+ * Pre-compute each team's form trajectory for the season: a per-season
+ * campaign factor plus an AR(1) momentum process per matchday. Each team
+ * gets its own RNG stream derived from (seed, clubId) so trajectories are
+ * independent of the match-sampling stream and of each other.
+ *
+ * Exported for tests. Pure: same seed + teams + rounds → same trajectories.
+ */
+export function buildFormTrajectories(
+  seed: number,
+  teams: TeamStrength[],
+  totalRounds: number,
+): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  for (const t of teams) {
+    const rng = mulberry32(hashSeed(seed, 'form:' + t.clubId));
+    const seasonForm = clamp(
+      gaussian(rng, 0, FORM_SEASON_SIGMA),
+      -FORM_SEASON_CAP,
+      FORM_SEASON_CAP,
+    );
+    const traj: number[] = new Array(totalRounds);
+    let momentum = 0;
+    for (let md = 0; md < totalRounds; md++) {
+      momentum = clamp(
+        FORM_MOMENTUM_RHO * momentum + gaussian(rng, 0, FORM_MOMENTUM_STEP),
+        -FORM_MOMENTUM_CAP,
+        FORM_MOMENTUM_CAP,
+      );
+      traj[md] = seasonForm + momentum;
+    }
+    out.set(t.clubId, traj);
+  }
+  return out;
+}
+
+/**
+ * Run-in motivation from the live table: relegation-threatened sides fight,
+ * safe mid-table drifts, the title race sharpens. Only active in the final
+ * MOTIVATION_WINDOW matchdays.
+ */
+function motivationByClub(
+  table: Map<string, LeagueRow>,
+  leagueSize: number,
+): Map<string, number> {
+  const sorted = sortTable([...table.values()]);
+  const leaderPts = sorted[0]?.points ?? 0;
+  const out = new Map<string, number>();
+  for (let i = 0; i < sorted.length; i++) {
+    const row = sorted[i]!;
+    const pos = i + 1;
+    if (pos >= leagueSize - 3) {
+      // In or one place above the drop zone — scrapping for survival.
+      out.set(row.clubId, MOTIVATION_RELEGATION);
+    } else if (leaderPts - row.points <= 6) {
+      // Within touching distance of the title.
+      out.set(row.clubId, MOTIVATION_TITLE_RACE);
+    } else if (pos > 7 && pos < leagueSize - 5) {
+      // Safe, nothing to play for.
+      out.set(row.clubId, MOTIVATION_SAFE_SLUMP);
+    } else {
+      out.set(row.clubId, 0);
+    }
+  }
+  return out;
+}
+
+function clamp(x: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, x));
+}
+
+/** Apply a combined form multiplier to a team's attack + defense. */
+function withForm(t: TeamStrength, form: number): TeamStrength {
+  const f = 1 + clamp(form, -FORM_TOTAL_CAP, FORM_TOTAL_CAP);
+  return { ...t, attack: t.attack * f, defense: t.defense * f };
+}
+
 /** Apply a result to the running league table. */
 function applyResult(table: Map<string, LeagueRow>, f: FixtureResult): void {
   const home = table.get(f.homeId) ?? emptyRow(f.homeId);
@@ -154,10 +243,31 @@ export function runSeasonOnce(input: SeasonRunInput): SeasonRunResult {
   // defence ratings once so each match scales against them, not absolutes.
   const leagueAvg = leagueAverages(input.strengths);
 
+  // Form layers: per-season campaign factor + per-matchday momentum streaks.
+  const forms = buildFormTrajectories(input.seed, input.strengths, totalRounds);
+  // Run-in motivation, recomputed from the live table when the matchday turns.
+  let motivation = new Map<string, number>();
+  let motivationMd = -1;
+
   const fixtures: FixtureResult[] = [];
   for (const f of fixturesPlan) {
+    const inRunIn = f.matchday > totalRounds - MOTIVATION_WINDOW;
+    if (inRunIn && f.matchday !== motivationMd) {
+      motivation = motivationByClub(table, input.strengths.length);
+      motivationMd = f.matchday;
+    }
+    const mdIdx = f.matchday - 1;
+    const homeForm =
+      (forms.get(f.home.clubId)?.[mdIdx] ?? 0) + (inRunIn ? motivation.get(f.home.clubId) ?? 0 : 0);
+    const awayForm =
+      (forms.get(f.away.clubId)?.[mdIdx] ?? 0) + (inRunIn ? motivation.get(f.away.clubId) ?? 0 : 0);
+    const home = withForm(f.home, homeForm);
+    const away = withForm(f.away, awayForm);
+
+    // Context (MOR / formation clash) comes from the base records — form
+    // moves a squad's level, not the manager's tactics.
     const context = USE_DIXON_COLES ? buildMatchContext(f.home, f.away) : undefined;
-    const { homeGoals, awayGoals } = simulateFixture(rng, f.home, f.away, leagueAvg, context);
+    const { homeGoals, awayGoals } = simulateFixture(rng, home, away, leagueAvg, context);
     const monthIdx = Math.min(
       MONTHS.length - 1,
       Math.floor(((f.matchday - 1) / totalRounds) * MONTHS.length),

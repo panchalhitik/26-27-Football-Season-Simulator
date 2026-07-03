@@ -70,7 +70,7 @@ export const USE_DIXON_COLES = true;
  * high-scoring draws, increases 1-0 / 0-0 / 0-1 frequencies. -0.15 is the
  * standard literature value.
  */
-export const DC_RHO = -0.15;
+export const DC_RHO = -0.20;
 
 /**
  * Log-space base goals — the constant in the λ formula:
@@ -78,7 +78,7 @@ export const DC_RHO = -0.15;
  * Set so that two league-average sides with neutral chemistry and neutral
  * managers produce λ ≈ 1.35 home and λ ≈ 1.10 away — matching real football.
  */
-export const LOG_BASE = Math.log(1.10);
+export const LOG_BASE = Math.log(1.08);
 
 /** Home-only LOG-space additive term. e^0.27 ≈ ×1.31 multiplier. */
 export const HOME_ADV_LOG = 0.27;
@@ -94,7 +94,7 @@ export const HOME_ADV_LOG = 0.27;
  * naturally because λ has an upper cap of 7.
  */
 export const NORM_RANGE = 15;
-export const STRENGTH_GAIN = 0.45;
+export const STRENGTH_GAIN = 0.36;
 
 /**
  * Safe defaults used when callers don't supply per-league averages — keeps
@@ -121,3 +121,39 @@ export function chemistryMultiplier(chem01: number): number {
 export function managerMultiplier(modifier: number): number {
   return 1 + modifier / MANAGER_SCALE;
 }
+
+/* ─────────────────────────── form & narrative layers (league season) ───
+ *
+ * Every fixture used to be independent given static strengths — a merit
+ * table with no stories. These layers add the variance real leagues have:
+ *
+ *   1. SEASON form  — one draw per team per season: a campaign where the
+ *      squad clicks (new signing settles, dressing room united) or unravels
+ *      (injuries, unrest). Gaussian, capped.
+ *   2. MOMENTUM     — AR(1) hot/cold streaks evolving per matchday.
+ *   3. MOTIVATION   — the run-in: relegation-threatened sides fight, safe
+ *      mid-table drifts, the title race sharpens.
+ *
+ * All seeded, all pure. Applied as a multiplier on attack & defense.
+ */
+
+/** Std-dev of the per-season form factor (fraction of rating). */
+export const FORM_SEASON_SIGMA = 0.045;
+/** Hard cap on the per-season factor. */
+export const FORM_SEASON_CAP = 0.09;
+/** AR(1) persistence of matchday momentum (0 = white noise, 1 = random walk). */
+export const FORM_MOMENTUM_RHO = 0.70;
+/** Std-dev of each momentum innovation step. */
+export const FORM_MOMENTUM_STEP = 0.014;
+/** Hard cap on momentum. */
+export const FORM_MOMENTUM_CAP = 0.04;
+/** Cap on the combined (season + momentum + motivation) swing. */
+export const FORM_TOTAL_CAP = 0.09;
+/** How many final matchdays the motivation layer covers. */
+export const MOTIVATION_WINDOW = 8;
+/** Relegation-zone (± 1 place) sides raise their game in the run-in. */
+export const MOTIVATION_RELEGATION = 0.015;
+/** Safe mid-table with nothing to play for drifts. */
+export const MOTIVATION_SAFE_SLUMP = -0.010;
+/** Sides within touching distance of 1st push harder. */
+export const MOTIVATION_TITLE_RACE = 0.008;
