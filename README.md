@@ -4,11 +4,10 @@ A browser-based football transfer-window simulator. Pick one of twelve European
 giants, hire or sack the manager, negotiate signings and sales across ~3,500
 real players, set your XI, then play out all 38 fixtures of the season.
 
-Single-page React app — no backend, no runtime fetches. All player and club
+Single-page React app; no backend, no runtime fetches. All player and club
 data ships in the bundle; all match, transfer, and cup logic runs client-side
 against seeded RNGs so a given seed always produces the same season.
 
-Inspired by [theishantake.com/#titss](https://theishantake.com/#titss).
 
 ## Stack
 
@@ -118,15 +117,6 @@ filters to the twelve clubs, normalizes ratings, and emits:
 Raw inputs live under `data-raw/` (gitignored). Regenerate with the script's
 own instructions.
 
-## Testing
-
-```bash
-npm run test           # watch mode
-npm run test:run       # single pass, CI-friendly
-```
-
-Full engine/sim test coverage is a hard requirement. UI tests are
-nice-to-have but not required.
 
 ## License
 
