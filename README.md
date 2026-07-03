@@ -8,6 +8,8 @@ Single-page React app; no backend, no runtime fetches. All player and club
 data ships in the bundle; all match, transfer, and cup logic runs client-side
 against seeded RNGs so a given seed always produces the same season.
 
+URL : https://26-27-football-season-simulator.vercel.app/
+
 
 ## Stack
 
