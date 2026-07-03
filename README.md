@@ -73,8 +73,9 @@ no `Math.random()`. Includes:
 ### `sim/` — match engine, season, cups
 
 - **Dixon-Coles log-linear** match model with antisymmetric μ / τ_tilt and symmetric τ_tempo / home_adv
+- **Form layers** — per-season campaign factor, AR(1) matchday momentum, and run-in motivation from the live table
 - **Monte Carlo** season runs to estimate title / top-4 / relegation probabilities
-- **Cup simulator** — knockout brackets per FA Cup / EFL / UCL with sigmoid head-to-head, seeded per cup
+- **Cup simulator** — full FA Cup / EFL / UCL runs through the same match engine: squad rotation, lower-league draws, progressive difficulty, two-legged UCL ties, extra time + penalties
 - **Season stats** — per-player goals / assists / clean sheets attributed each fixture
 - **Awards** — Golden Boot, Playmaker, Golden Glove, Player of the Season
 - **Department balance** and **projected vs finished position** narrative
