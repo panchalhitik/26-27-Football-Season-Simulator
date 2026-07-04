@@ -165,3 +165,36 @@ describe('teamStrengthFromXI', () => {
     expect(s.defense).toBeGreaterThan(80);
   });
 });
+
+describe('fillVacantSlots', () => {
+  it('replaces an injured starter with the best available fit and keeps everyone else', async () => {
+    const { fillVacantSlots, autoPickXI } = await import('./squad');
+    const { FORMATIONS_BY_SHAPE } = await import('@/data');
+    const formation = FORMATIONS_BY_SHAPE['4-3-3'];
+    const mk = (id: string, position: import('@/types').Position, group: import('@/types').PositionGroup, rating: number): import('@/types').Player => ({
+      id, name: id, age: 25, position, group, rating, potential: rating,
+      marketValueM: 10, wageK: 50, contractYearsLeft: 3, clubId: 'c', foot: 'R', nationality: 'X',
+    });
+    const squad = [
+      mk('gk1', 'GK', 'GK', 82), mk('gk2', 'GK', 'GK', 74),
+      mk('lb1', 'LB', 'DEF', 80), mk('cb1', 'CB', 'DEF', 82), mk('cb2', 'CB', 'DEF', 81),
+      mk('rb1', 'RB', 'DEF', 79), mk('cb3', 'CB', 'DEF', 75),
+      mk('dm1', 'CDM', 'MID', 81), mk('cm1', 'CM', 'MID', 83), mk('cm2', 'CM', 'MID', 80),
+      mk('cm3', 'CM', 'MID', 74),
+      mk('lw1', 'LW', 'FWD', 84), mk('rw1', 'RW', 'FWD', 83), mk('st1', 'ST', 'FWD', 86),
+      mk('st2', 'ST', 'FWD', 77),
+    ];
+    const xi = autoPickXI(squad, formation);
+    const stSlot = formation.slots.findIndex((s) => s.position === 'ST');
+    expect(xi.assignments[stSlot]).toBe('st1');
+
+    const repaired = fillVacantSlots({
+      squad, formation, xi, unavailable: new Set(['st1']),
+    });
+    expect(repaired.assignments[stSlot]).toBe('st2');   // backup striker steps in
+    // everyone else untouched
+    for (let i = 0; i < 11; i++) {
+      if (i !== stSlot) expect(repaired.assignments[i]).toBe(xi.assignments[i]);
+    }
+  });
+});

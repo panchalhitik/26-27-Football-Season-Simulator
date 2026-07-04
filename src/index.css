@@ -1,14 +1,19 @@
 @import 'tailwindcss';
 
+/*
+ * GAMIFIED THEME — "floodlit pitch".
+ * Deep green-black stadium base, volt-green primary, gold + cyan accents.
+ * Variable NAMES are stable (screens reference them) — values define the vibe.
+ */
 @theme {
-  --color-accent-pink: #ff2ea6;
-  --color-accent-cyan: #00e5ff;
-  --color-accent-green: #19f5a1;
-  --color-accent-amber: #ffb547;
-  --color-bg: #0a0612;
-  --color-bg-panel: #14091f;
-  --color-bg-card: #1a0c2a;
-  --color-line: #2a1a3a;
+  --color-accent-pink: #ff2ea6;   /* drama accent (finals, sackings) */
+  --color-accent-cyan: #22d9ee;
+  --color-accent-green: #26f7a8;  /* THE primary — volt pitch green */
+  --color-accent-amber: #ffd257;  /* gold — trophies, ratings */
+  --color-bg: #04100b;
+  --color-bg-panel: #081812;
+  --color-bg-card: #0b1d15;
+  --color-line: #1b3a2b;
 
   --font-display: 'Space Grotesk', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
@@ -18,16 +23,18 @@
   html, body, #root { height: 100%; }
   body {
     background:
-      radial-gradient(ellipse 80% 60% at 100% 0%, rgba(140, 30, 180, 0.35), transparent 60%),
-      radial-gradient(ellipse 60% 40% at 0% 100%, rgba(40, 20, 90, 0.25), transparent 70%),
+      radial-gradient(ellipse 70% 50% at 85% -10%, rgba(38, 247, 168, 0.14), transparent 60%),
+      radial-gradient(ellipse 55% 40% at 0% 0%, rgba(34, 217, 238, 0.10), transparent 65%),
+      radial-gradient(ellipse 80% 50% at 50% 115%, rgba(20, 120, 80, 0.18), transparent 70%),
       var(--color-bg);
     color: white;
     font-family: var(--font-display);
     -webkit-font-smoothing: antialiased;
   }
+  ::selection { background: rgba(38, 247, 168, 0.35); }
 }
 
-/* Custom utilities — written as plain CSS so other rules can compose them. */
+/* Custom utilities — plain CSS so other rules can compose them. */
 .text-display {
   font-family: var(--font-display);
   letter-spacing: -0.02em;
@@ -47,62 +54,81 @@
   letter-spacing: 0.18em;
 }
 .card {
-  border-radius: 0.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  background-color: var(--color-bg-card);
+  border-radius: 1rem;
+  border: 1px solid rgba(38, 247, 168, 0.12);
+  background:
+    linear-gradient(160deg, rgba(38, 247, 168, 0.05), transparent 40%),
+    var(--color-bg-card);
   padding: 1.25rem;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 8px 24px rgba(0, 0, 0, 0.35);
 }
 .card-hover {
-  transition: border-color 150ms, box-shadow 150ms;
+  transition: border-color 150ms, box-shadow 150ms, transform 150ms;
 }
 .card-hover:hover {
-  border-color: rgba(255, 255, 255, 0.25);
-  box-shadow: 0 0 0 1px rgba(255, 46, 166, 0.4);
+  border-color: rgba(38, 247, 168, 0.45);
+  box-shadow: 0 0 0 1px rgba(38, 247, 168, 0.35), 0 12px 28px rgba(0, 0, 0, 0.45);
+  transform: translateY(-2px);
 }
 .btn-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0.75rem 1.5rem;
-  border-radius: 0.375rem;
+  border-radius: 0.625rem;
   font-family: var(--font-display);
   text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: white;
+  letter-spacing: 0.16em;
+  color: #04150d;
   font-weight: 800;
-  background: linear-gradient(90deg, #ff2ea6 0%, #7a4cff 50%, #00e5ff 100%);
-  box-shadow: 0 0 24px rgba(255, 46, 166, 0.35);
+  background: linear-gradient(100deg, #26f7a8 0%, #a3ff12 100%);
+  box-shadow:
+    0 0 28px rgba(38, 247, 168, 0.45),
+    0 2px 0 rgba(255, 255, 255, 0.25) inset;
   cursor: pointer;
   border: none;
+  transition: transform 120ms, box-shadow 120ms, filter 120ms;
 }
-.btn-primary:hover { filter: brightness(1.1); }
+.btn-primary:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 0 36px rgba(38, 247, 168, 0.6), 0 2px 0 rgba(255, 255, 255, 0.25) inset;
+}
+.btn-primary:active { transform: translateY(0); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(40%); }
 .btn-ghost {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0.5rem 1rem;
-  border-radius: 0.375rem;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 0.625rem;
+  border: 1px solid rgba(38, 247, 168, 0.25);
   color: rgba(255, 255, 255, 0.9);
   font-size: 0.875rem;
-  background: transparent;
+  background: rgba(38, 247, 168, 0.05);
   cursor: pointer;
+  transition: border-color 120ms, background 120ms;
 }
-.btn-ghost:hover { border-color: rgba(255, 255, 255, 0.4); color: white; }
+.btn-ghost:hover {
+  border-color: rgba(38, 247, 168, 0.6);
+  background: rgba(38, 247, 168, 0.12);
+  color: white;
+}
 .btn-sell {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0.375rem 1rem;
-  border-radius: 0.375rem;
+  border-radius: 0.5rem;
   font-family: var(--font-display);
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.18em;
   color: white;
   background: linear-gradient(90deg, #ff2ea6, #ff5e62);
+  box-shadow: 0 0 16px rgba(255, 46, 166, 0.3);
   cursor: pointer;
   border: none;
 }
@@ -111,13 +137,14 @@
   align-items: center;
   justify-content: center;
   padding: 0.375rem 1rem;
-  border-radius: 0.375rem;
+  border-radius: 0.5rem;
   font-family: var(--font-display);
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.18em;
-  color: #08221a;
-  background: linear-gradient(90deg, #19f5a1, #5be0c5);
+  color: #04150d;
+  background: linear-gradient(90deg, #26f7a8, #a3ff12);
+  box-shadow: 0 0 16px rgba(38, 247, 168, 0.3);
   cursor: pointer;
   border: none;
 }
@@ -128,7 +155,7 @@
   width: 2.25rem;
   font-size: 10px;
   font-weight: 700;
-  border-radius: 0.25rem;
+  border-radius: 0.375rem;
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }

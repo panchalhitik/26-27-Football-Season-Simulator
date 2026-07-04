@@ -111,6 +111,58 @@ export function autoPickXI(squad: Player[], formation: Formation): XI {
   return { ...partialXi, chemistry, exactMatches };
 }
 
+/**
+ * Repair an XI after injuries (or sales): keep every available assigned
+ * starter where the user put him, and fill vacant / unavailable slots with
+ * the best-fitting remaining squad player. Pure.
+ */
+export function fillVacantSlots(args: {
+  squad: Player[];
+  formation: Formation;
+  xi: XI;
+  /** PlayerIds that cannot play (injured, sold). */
+  unavailable: Set<string>;
+}): XI {
+  const { squad, formation, xi, unavailable } = args;
+  const squadById: Record<string, Player> = Object.fromEntries(squad.map((p) => [p.id, p]));
+
+  const assignments: Record<number, string> = {};
+  const used = new Set<string>();
+  formation.slots.forEach((_, idx) => {
+    const pid = xi.assignments[idx];
+    if (pid && !unavailable.has(pid) && squadById[pid] && !used.has(pid)) {
+      assignments[idx] = pid;
+      used.add(pid);
+    }
+  });
+
+  formation.slots.forEach((slot, idx) => {
+    if (assignments[idx]) return;
+    let best: Player | undefined;
+    let bestScore = -Infinity;
+    for (const p of squad) {
+      if (used.has(p.id) || unavailable.has(p.id)) continue;
+      const score = positionAffinity(slot.position, p.position) * 100 + p.rating;
+      if (score > bestScore) {
+        bestScore = score;
+        best = p;
+      }
+    }
+    if (best) {
+      assignments[idx] = best.id;
+      used.add(best.id);
+    }
+  });
+
+  const partial: XI = {
+    ...xi,
+    shape: formation.shape,
+    assignments,
+  };
+  const { chemistry, exactMatches } = chemistryFor({ squadById, xi: partial, formation });
+  return { ...partial, chemistry, exactMatches };
+}
+
 /** Weighted contribution of each position group to ATTACK and DEFENSE ratings. */
 const ATTACK_WEIGHTS: Record<PositionGroup, number> = { GK: 0.05, DEF: 0.20, MID: 0.35, FWD: 0.40 };
 const DEFENSE_WEIGHTS: Record<PositionGroup, number> = { GK: 0.30, DEF: 0.40, MID: 0.25, FWD: 0.05 };
@@ -147,6 +199,11 @@ export function teamStrengthFromXI(input: {
   managerDefenseMod: number;
   /** Optional full squad list — when supplied, the top-7 non-XI players add a depth bonus. */
   squad?: Player[];
+  /**
+   * Optional shape-conventionality multiplier from engine/shape.ts —
+   * 0.85 (tactical chaos) .. 1.0 (textbook). Applied to both ends.
+   */
+  shapeMultiplier?: number;
 }): { attack: number; defense: number } {
   const playersInXI = Object.values(input.xi.assignments)
     .map((id) => input.squadById[id])
@@ -202,9 +259,10 @@ export function teamStrengthFromXI(input: {
     }
   }
 
+  const shapeMult = input.shapeMultiplier ?? 1;
   return {
-    attack: clamp(attackRating + input.managerAttackMod + depthBonus, 30, 99),
-    defense: clamp(defenseRating + input.managerDefenseMod + depthBonus, 30, 99),
+    attack: clamp((attackRating + input.managerAttackMod + depthBonus) * shapeMult, 30, 99),
+    defense: clamp((defenseRating + input.managerDefenseMod + depthBonus) * shapeMult, 30, 99),
   };
 }
 

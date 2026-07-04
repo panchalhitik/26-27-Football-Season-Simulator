@@ -20,10 +20,19 @@ import { CLUBS_BY_ID, MANAGERS, MANAGERS_BY_ID, PLAYERS_BY_ID, PLAYERS_BY_CLUB, 
 import {
   autoPickXI as engineAutoPickXI,
   chemistryFor,
+  fillVacantSlots,
   teamStrengthFromXI,
 } from '@/engine/squad';
 import { computeManagerRatings } from '@/engine/manager';
-import { monteCarloSeason } from '@/sim/season';
+import { conventionality, withDerivedPositions } from '@/engine/shape';
+import { mulberry32, hashSeed } from '@/engine/rng';
+import {
+  initLiveSeason,
+  liveToSeasonResult,
+  playMatchday,
+  type LiveSeasonState,
+} from '@/sim/live';
+import { addInjuries, rollMatchdayInjuries, tickInjuries } from '@/sim/injuries';
 import { midSeasonReport as buildMidSeason, finalReport as buildFinal } from '@/sim/report';
 import type { MidSeasonReport, FinalReport } from '@/types';
 
@@ -54,9 +63,15 @@ interface GameStateSlice {
   seasonRun: SeasonRunResult | null;
   finalReport: FinalReport | null;
 
-  /** Transient: the strength array fed into the latest season sim. Used by the
-   *  results screen to derive projected position. Not persisted. */
+  /** The strength array fed into the latest season sim. Used by the results
+   *  screen to derive projected position, and as the opponent pool for the
+   *  live matchday engine. */
   lastSeasonStrengths: TeamStrength[];
+
+  /** Matchday-by-matchday season in progress (null before kickoff). */
+  liveSeason: LiveSeasonState | null;
+  /** PlayerId → matchdays still out injured. */
+  injuries: Record<PlayerId, number>;
 }
 
 interface GameActions {
@@ -79,9 +94,19 @@ interface GameActions {
   autoPickXI(): void;
   assignToSlot(slotIndex: number, playerId: PlayerId): void;
   setXI(assignments: Record<number, PlayerId>): void;
+  /** Fluid formations: drag a slot to new pitch coordinates. */
+  moveSlot(slotIndex: number, x: number, y: number): void;
+  /** Snap back to the preset formation layout. */
+  resetSlots(): void;
 
-  simulateH1(): void;
-  simulateH2(): void;
+  /** Kick the season off (or resume) — builds the league + live state. */
+  startSeason(): void;
+  /** Play exactly one matchday. */
+  simMatchday(): void;
+  /** Fast-forward to the mid-season break. */
+  simToMidSeason(): void;
+  /** Fast-forward to the end of the season. */
+  simToEnd(): void;
 }
 
 export type GameStore = GameStateSlice & GameActions;
@@ -106,6 +131,8 @@ const INITIAL: GameStateSlice = {
   seasonRun: null,
   finalReport: null,
   lastSeasonStrengths: [],
+  liveSeason: null,
+  injuries: {},
 };
 
 /**
@@ -114,21 +141,23 @@ const INITIAL: GameStateSlice = {
  * sides; clubIds are prefixed so they can't collide with our hand-built clubs.
  */
 const LEAGUE_FILLERS: Record<string, { id: string; name: string; attack: number; defense: number }[]> = {
+  // 26/27 season: West Ham, Wolves, Burnley relegated; Ipswich, Hull,
+  // Coventry promoted from the Championship.
   PL: [
     { id: 'pl-newcastle',  name: 'Newcastle',         attack: 78, defense: 76 },
     { id: 'pl-villa',      name: 'Aston Villa',       attack: 76, defense: 74 },
     { id: 'pl-brighton',   name: 'Brighton',          attack: 74, defense: 73 },
-    { id: 'pl-westham',    name: 'West Ham',          attack: 73, defense: 71 },
     { id: 'pl-brentford',  name: 'Brentford',         attack: 72, defense: 70 },
     { id: 'pl-palace',     name: 'Crystal Palace',    attack: 71, defense: 70 },
-    { id: 'pl-wolves',     name: 'Wolves',            attack: 70, defense: 69 },
     { id: 'pl-fulham',     name: 'Fulham',            attack: 70, defense: 69 },
     { id: 'pl-everton',    name: 'Everton',           attack: 69, defense: 70 },
     { id: 'pl-bourne',     name: 'Bournemouth',       attack: 71, defense: 68 },
     { id: 'pl-forest',     name: 'Nottingham Forest', attack: 69, defense: 69 },
     { id: 'pl-leeds',      name: 'Leeds',             attack: 68, defense: 67 },
     { id: 'pl-sunderland', name: 'Sunderland',        attack: 66, defense: 65 },
-    { id: 'pl-burnley',    name: 'Burnley',           attack: 65, defense: 65 },
+    { id: 'pl-ipswich',    name: 'Ipswich',           attack: 66, defense: 64 },
+    { id: 'pl-hull',       name: 'Hull City',         attack: 64, defense: 63 },
+    { id: 'pl-coventry',   name: 'Coventry',          attack: 65, defense: 63 },
   ],
   LL: [
     { id: 'll-atleti',     name: 'Atlético Madrid',  attack: 81, defense: 82 },
@@ -303,6 +332,80 @@ function buildLeagueStrengths(args: {
   }));
 
   return [userStrengths, ...peerClubs, ...used];
+}
+
+/**
+ * Derive the user's XI (repaired around injuries) and strength record from
+ * current state. All math delegated to engine functions — this just wires
+ * them together.
+ */
+function deriveUserRecord(s: GameStateSlice): {
+  xi: XI;
+  userStrength: { attack: number; defense: number };
+  userExtras: {
+    chemistry01: number;
+    managerMod: number;
+    mor?: number;
+    formationShape?: FormationShape;
+  };
+} | null {
+  if (!s.clubId) return null;
+  const club = CLUBS_BY_ID[s.clubId];
+  const manager = s.managerId ? MANAGERS_BY_ID[s.managerId] : null;
+  if (!club || !manager) return null;
+
+  const squad = s.squadIds
+    .map((id) => PLAYERS_BY_ID[id])
+    .filter((p): p is NonNullable<typeof p> => Boolean(p));
+  const formation = FORMATIONS_BY_SHAPE[s.formationShape];
+
+  let xi = s.xi ?? engineAutoPickXI(squad, formation);
+
+  // Injured (or sold) starters get auto-replaced by the best available fit;
+  // the rest of the user's lineup is preserved.
+  const unavailable = new Set(Object.keys(s.injuries));
+  const squadIdSet = new Set(s.squadIds);
+  const needsRepair = Object.values(xi.assignments).some(
+    (pid) => unavailable.has(pid) || !squadIdSet.has(pid),
+  );
+  if (needsRepair) {
+    for (const pid of Object.values(xi.assignments)) {
+      if (!squadIdSet.has(pid)) unavailable.add(pid);
+    }
+    xi = fillVacantSlots({ squad, formation, xi, unavailable });
+  }
+
+  // Fluid layout: chemistry against derived positions + conventionality tax.
+  let shapeMultiplier = 1;
+  if (xi.customSlots && xi.customSlots.length === formation.slots.length) {
+    const verdict = conventionality(xi.customSlots);
+    shapeMultiplier = verdict.multiplier;
+  }
+
+  const squadById = Object.fromEntries(
+    s.squadIds.map((id) => [id, PLAYERS_BY_ID[id]]).filter(([, p]) => Boolean(p)),
+  ) as Record<string, NonNullable<(typeof PLAYERS_BY_ID)[string]>>;
+
+  const userStrength = teamStrengthFromXI({
+    squadById, xi, squad,
+    baseAttack: club.baseAttack,
+    baseDefense: club.baseDefense,
+    managerAttackMod: manager.attackMod,
+    managerDefenseMod: manager.defenseMod,
+    shapeMultiplier,
+  });
+  const morById = computeManagerRatings(MANAGERS).byId;
+  const userMor = morById[manager.id]?.mor ?? 50;
+  return {
+    xi,
+    userStrength,
+    userExtras: {
+      chemistry01: (xi.chemistry ?? 60) / 100,
+      managerMod: manager.attackMod + manager.defenseMod,
+      mor: userMor,
+      formationShape: s.formationShape,
+    },
+  };
 }
 
 export const useGameStore = create<GameStore>()(
@@ -496,127 +599,159 @@ export const useGameStore = create<GameStore>()(
         set({ xi: { ...partial, chemistry: chem.chemistry, exactMatches: chem.exactMatches } });
       },
 
-      simulateH1() {
-        const s = get();
-        if (!s.clubId) return;
-        const club = CLUBS_BY_ID[s.clubId];
-        const manager = s.managerId ? MANAGERS_BY_ID[s.managerId] : null;
-        if (!club || !manager) return;
-
-        // Ensure we have an XI (auto-pick if user skipped formation tab)
-        let { xi } = s;
-        const squad = s.squadIds
-          .map((id) => PLAYERS_BY_ID[id])
-          .filter((p): p is NonNullable<typeof p> => Boolean(p));
-        if (!xi) {
-          const formation = FORMATIONS_BY_SHAPE[s.formationShape];
-          xi = engineAutoPickXI(squad, formation);
-        }
+      moveSlot(slotIndex, x, y) {
+        const { xi, formationShape, squadIds } = get();
+        if (!xi) return;
+        const formation = FORMATIONS_BY_SHAPE[formationShape];
+        const base = xi.customSlots ?? formation.slots.map((s) => ({ ...s }));
+        if (slotIndex < 0 || slotIndex >= base.length) return;
+        const cx = Math.max(4, Math.min(96, x));
+        const cy = Math.max(8, Math.min(96, y));
+        const customSlots = withDerivedPositions(
+          base.map((s, i) => (i === slotIndex ? { ...s, x: cx, y: cy } : s)),
+        );
+        // Chemistry re-scores against the DERIVED positions of the new layout.
         const squadById = Object.fromEntries(
-          s.squadIds.map((id) => [id, PLAYERS_BY_ID[id]]).filter(([, p]) => Boolean(p)),
+          squadIds.map((id) => [id, PLAYERS_BY_ID[id]!]).filter(([, p]) => Boolean(p)),
         ) as Record<string, NonNullable<(typeof PLAYERS_BY_ID)[string]>>;
-        const userStrength = teamStrengthFromXI({
-          squadById, xi, squad,
-          baseAttack: club.baseAttack,
-          baseDefense: club.baseDefense,
-          managerAttackMod: manager.attackMod,
-          managerDefenseMod: manager.defenseMod,
-        });
-        const morById = computeManagerRatings(MANAGERS).byId;
-        const userMor = morById[manager.id]?.mor ?? 50;
-        const userExtras = {
-          chemistry01: (xi.chemistry ?? 60) / 100,
-          managerMod: manager.attackMod + manager.defenseMod,
-          mor: userMor,
-          formationShape: s.formationShape,
-        };
-        const strengths = buildLeagueStrengths({
-          userClubId: s.clubId,
-          userStrength,
-          userExtras,
-        });
-        const mc = monteCarloSeason({
-          seed: s.seed,
-          userClubId: s.clubId,
-          strengths,
-          monteCarloRuns: 1,
-        });
-
-        // The headline run gives us the fixture stream.
-        const h1Table = mc.headline.finalTable.map((r) => ({ clubId: r.clubId, points: r.points / 2 })); // mid-season approx
-        const mid = buildMidSeason({
-          fixtures: mc.headline.fixtures,
-          userClubId: s.clubId,
-          finalTableAtH1: h1Table,
-        });
-
-        set({ xi, midSeason: mid, seasonRun: mc.headline, lastSeasonStrengths: strengths });
+        const fluidFormation = { ...formation, slots: customSlots };
+        const partial: XI = { ...xi, customSlots };
+        const chem = chemistryFor({ squadById, xi: partial, formation: fluidFormation });
+        set({ xi: { ...partial, chemistry: chem.chemistry, exactMatches: chem.exactMatches } });
       },
 
-      simulateH2() {
+      resetSlots() {
+        const { xi, formationShape, squadIds } = get();
+        if (!xi) return;
+        const formation = FORMATIONS_BY_SHAPE[formationShape];
+        const squadById = Object.fromEntries(
+          squadIds.map((id) => [id, PLAYERS_BY_ID[id]!]).filter(([, p]) => Boolean(p)),
+        ) as Record<string, NonNullable<(typeof PLAYERS_BY_ID)[string]>>;
+        const { customSlots: _drop, ...rest } = xi;
+        const chem = chemistryFor({ squadById, xi: rest, formation });
+        set({ xi: { ...rest, chemistry: chem.chemistry, exactMatches: chem.exactMatches } });
+      },
+
+      startSeason() {
         const s = get();
         if (!s.clubId) return;
+        // Resuming an in-progress season (e.g. back from the January window)
+        // keeps the live state — only the user record refreshes per matchday.
+        if (s.liveSeason && s.liveSeason.matchday <= s.liveSeason.totalRounds) return;
+
+        const derived = deriveUserRecord(s);
+        if (!derived) return;
+        const strengths = buildLeagueStrengths({
+          userClubId: s.clubId,
+          userStrength: derived.userStrength,
+          userExtras: derived.userExtras,
+        });
+        const live = initLiveSeason({ seed: s.seed, strengths });
+        set({
+          xi: derived.xi,
+          liveSeason: live,
+          lastSeasonStrengths: strengths,
+          injuries: {},
+          midSeason: null,
+          seasonRun: null,
+          finalReport: null,
+        });
+      },
+
+      simMatchday() {
+        const s = get();
+        if (!s.clubId || !s.liveSeason) return;
+        const live = s.liveSeason;
+        if (live.matchday > live.totalRounds) return;
         const club = CLUBS_BY_ID[s.clubId];
         const manager = s.managerId ? MANAGERS_BY_ID[s.managerId] : null;
         if (!club || !manager) return;
 
-        // Re-derive strengths from the current squad. If the user opened the
-        // January window and signed someone, that signing now actually
-        // affects the rest of the season.
-        let { xi } = s;
-        const squad = s.squadIds
+        // 1. Repair the XI around injuries, then refresh the user's strength
+        //    record — lineup, chemistry, fluid-shape penalty all live.
+        const derived = deriveUserRecord(s);
+        if (!derived) return;
+        const strengths = s.lastSeasonStrengths.map((t) =>
+          t.clubId === s.clubId
+            ? {
+                ...t,
+                attack: derived.userStrength.attack,
+                defense: derived.userStrength.defense,
+                chemistry01: derived.userExtras.chemistry01,
+                managerMod: derived.userExtras.managerMod,
+                ...(derived.userExtras.mor !== undefined ? { mor: derived.userExtras.mor } : {}),
+                ...(derived.userExtras.formationShape
+                  ? { formationShape: derived.userExtras.formationShape }
+                  : {}),
+              }
+            : t,
+        );
+
+        // 2. Play the matchday.
+        const next = playMatchday(live, strengths);
+        const playedMd = live.matchday;
+
+        // 3. Injuries: the XI that just played rolls the dice; existing
+        //    knocks heal by one matchday.
+        const xiPlayers = Object.values(derived.xi.assignments)
           .map((id) => PLAYERS_BY_ID[id])
           .filter((p): p is NonNullable<typeof p> => Boolean(p));
-        if (!xi) {
-          const formation = FORMATIONS_BY_SHAPE[s.formationShape];
-          xi = engineAutoPickXI(squad, formation);
-        }
-        const squadById = Object.fromEntries(
-          s.squadIds.map((id) => [id, PLAYERS_BY_ID[id]]).filter(([, p]) => Boolean(p)),
-        ) as Record<string, NonNullable<(typeof PLAYERS_BY_ID)[string]>>;
-        const userStrength = teamStrengthFromXI({
-          squadById, xi, squad,
-          baseAttack: club.baseAttack,
-          baseDefense: club.baseDefense,
-          managerAttackMod: manager.attackMod,
-          managerDefenseMod: manager.defenseMod,
-        });
-        const morById = computeManagerRatings(MANAGERS).byId;
-        const userMor = morById[manager.id]?.mor ?? 50;
-        const userExtras = {
-          chemistry01: (xi.chemistry ?? 60) / 100,
-          managerMod: manager.attackMod + manager.defenseMod,
-          mor: userMor,
-          formationShape: s.formationShape,
+        const injRng = mulberry32(hashSeed(s.seed, `inj:${playedMd}`));
+        const newInjuries = rollMatchdayInjuries({ rng: injRng, players: xiPlayers });
+        const injuries = addInjuries(tickInjuries(s.injuries), newInjuries);
+
+        const patch: Partial<GameStateSlice> = {
+          xi: derived.xi,
+          liveSeason: next,
+          lastSeasonStrengths: strengths,
+          injuries,
         };
-        const strengths = buildLeagueStrengths({
-          userClubId: s.clubId,
-          userStrength,
-          userExtras,
-        });
 
-        // Seed offset distinguishes the H2 sim from the H1 sim — same seed
-        // base, so still reproducible per game.
-        const mc = monteCarloSeason({
-          seed: s.seed + 1000,
-          userClubId: s.clubId,
-          strengths,
-          monteCarloRuns: 1,
-        });
+        // 4. Season milestones.
+        const half = next.totalRounds / 2;
+        if (playedMd === half) {
+          const mid = buildMidSeason({
+            fixtures: next.results,
+            userClubId: s.clubId,
+            finalTableAtH1: next.table.map((r) => ({ clubId: r.clubId, points: r.points })),
+          });
+          patch.midSeason = mid;
+          patch.seasonRun = liveToSeasonResult(next, s.clubId);
+          patch.phase = 'mid-season';
+        } else if (playedMd === next.totalRounds) {
+          const season = liveToSeasonResult(next, s.clubId);
+          patch.seasonRun = season;
+          patch.finalReport = buildFinal({
+            club,
+            season,
+            signings: s.signings,
+            sales: s.sales,
+            finalFormation: s.formationShape,
+            strengths,
+            seed: s.seed + 1000,
+          });
+          patch.phase = 'final-report';
+        }
 
-        const fr = buildFinal({
-          club,
-          season: mc.headline,
-          signings: s.signings,
-          sales: s.sales,
-          finalFormation: s.formationShape,
-          strengths,
-          seed: s.seed + 1000,
-        });
-        // The mid-season report stays as it was — that snapshot of the H1
-        // result is committed history. We just replace the seasonRun used to
-        // animate the H2 ticker and to drive the final report.
-        set({ xi, seasonRun: mc.headline, finalReport: fr, lastSeasonStrengths: strengths });
+        set(patch);
+      },
+
+      simToMidSeason() {
+        const { simMatchday } = get();
+        for (let guard = 0; guard < 50; guard++) {
+          const live = get().liveSeason;
+          if (!live || live.matchday > live.totalRounds / 2) break;
+          simMatchday();
+        }
+      },
+
+      simToEnd() {
+        const { simMatchday } = get();
+        for (let guard = 0; guard < 50; guard++) {
+          const live = get().liveSeason;
+          if (!live || live.matchday > live.totalRounds) break;
+          simMatchday();
+        }
       },
     }),
     {
@@ -642,6 +777,9 @@ export const useGameStore = create<GameStore>()(
         midSeason: state.midSeason,
         seasonRun: state.seasonRun,
         finalReport: state.finalReport,
+        lastSeasonStrengths: state.lastSeasonStrengths,
+        liveSeason: state.liveSeason,
+        injuries: state.injuries,
       }),
     },
   ),

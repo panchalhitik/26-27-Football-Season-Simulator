@@ -30,8 +30,10 @@ const MONTHS: FixtureResult['month'][] = [
 /**
  * Build a double round-robin fixture order across all teams in the table.
  * Pure function of the team IDs — same order for the same input.
+ * Exported so the live (matchday-by-matchday) engine shares the exact
+ * same schedule as the batch engine.
  */
-function buildFixtures(teams: TeamStrength[]): { home: TeamStrength; away: TeamStrength; matchday: number }[] {
+export function buildFixtures(teams: TeamStrength[]): { home: TeamStrength; away: TeamStrength; matchday: number }[] {
   // Round-robin schedule using the circle method.
   const list = teams.slice();
   if (list.length % 2 === 1) list.push({ clubId: '__BYE__', attack: 0, defense: 0, homeBoost: 0 });
@@ -71,7 +73,7 @@ function buildFixtures(teams: TeamStrength[]): { home: TeamStrength; away: TeamS
   return fixtures;
 }
 
-function emptyRow(clubId: string): LeagueRow {
+export function emptyRow(clubId: string): LeagueRow {
   return { clubId, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, gd: 0, points: 0 };
 }
 
@@ -80,7 +82,7 @@ function emptyRow(clubId: string): LeagueRow {
  * difference (antisymmetric), τ_tempo from both formations' openness
  * (symmetric), τ_tilt from defensive-lean clash (antisymmetric). Pure.
  */
-function buildMatchContext(home: TeamStrength, away: TeamStrength): {
+export function buildMatchContext(home: TeamStrength, away: TeamStrength): {
   homeMgr: { mor: number; tacticalEff: number; mu: number };
   awayMgr: { mor: number; tacticalEff: number; mu: number };
   matchup: { tauTempo: number; tauTilt: number };
@@ -155,7 +157,7 @@ export function buildFormTrajectories(
  * safe mid-table drifts, the title race sharpens. Only active in the final
  * MOTIVATION_WINDOW matchdays.
  */
-function motivationByClub(
+export function motivationByClub(
   table: Map<string, LeagueRow>,
   leagueSize: number,
 ): Map<string, number> {
@@ -186,13 +188,13 @@ function clamp(x: number, lo: number, hi: number): number {
 }
 
 /** Apply a combined form multiplier to a team's attack + defense. */
-function withForm(t: TeamStrength, form: number): TeamStrength {
+export function withForm(t: TeamStrength, form: number): TeamStrength {
   const f = 1 + clamp(form, -FORM_TOTAL_CAP, FORM_TOTAL_CAP);
   return { ...t, attack: t.attack * f, defense: t.defense * f };
 }
 
 /** Apply a result to the running league table. */
-function applyResult(table: Map<string, LeagueRow>, f: FixtureResult): void {
+export function applyResult(table: Map<string, LeagueRow>, f: FixtureResult): void {
   const home = table.get(f.homeId) ?? emptyRow(f.homeId);
   const away = table.get(f.awayId) ?? emptyRow(f.awayId);
   home.played += 1;
@@ -221,7 +223,7 @@ function applyResult(table: Map<string, LeagueRow>, f: FixtureResult): void {
   table.set(f.awayId, away);
 }
 
-function sortTable(rows: LeagueRow[]): LeagueRow[] {
+export function sortTable(rows: LeagueRow[]): LeagueRow[] {
   return rows.slice().sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
     if (b.gd !== a.gd) return b.gd - a.gd;

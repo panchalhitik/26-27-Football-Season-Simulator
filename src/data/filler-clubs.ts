@@ -5,21 +5,22 @@
  * UI doesn't print raw ids like "PL-EVERTON".
  */
 export const FILLER_CLUB_NAMES: Record<string, string> = {
-  // Premier League
+  // Premier League — 26/27: West Ham, Wolves, Burnley relegated;
+  // Ipswich, Hull, Coventry promoted.
   'pl-newcastle':  'Newcastle',
   'pl-villa':      'Aston Villa',
   'pl-brighton':   'Brighton',
-  'pl-westham':    'West Ham',
   'pl-brentford':  'Brentford',
   'pl-palace':     'Crystal Palace',
-  'pl-wolves':     'Wolves',
   'pl-fulham':     'Fulham',
   'pl-everton':    'Everton',
   'pl-bourne':     'Bournemouth',
   'pl-forest':     "Nott'm Forest",
   'pl-leeds':      'Leeds',
   'pl-sunderland': 'Sunderland',
-  'pl-burnley':    'Burnley',
+  'pl-ipswich':    'Ipswich',
+  'pl-hull':       'Hull City',
+  'pl-coventry':   'Coventry',
   // La Liga
   'll-atleti':     'Atlético',
   'll-athletic':   'Athletic',

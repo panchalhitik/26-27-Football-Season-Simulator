@@ -88,7 +88,10 @@ export type FormationShape =
   | '4-3-2-1'
   | '4-2-2-2'
   | '3-5-2'
-  | '3-4-3';
+  | '3-4-3'
+  | '5-3-2'
+  | '5-4-1'
+  | '4-5-1';
 
 export interface PitchSlot {
   position: Position;
@@ -109,4 +112,11 @@ export interface XI {
   assignments: Record<number, PlayerId>;
   chemistry: number; // 0..100
   exactMatches: number; // 0..11
+  /**
+   * Fluid positioning — when present, overrides the preset formation's slot
+   * coordinates. Slot POSITIONS are re-derived from where each slot actually
+   * sits on the pitch, and unconventional layouts pay a strength penalty
+   * (see engine/shape.ts conventionality).
+   */
+  customSlots?: PitchSlot[];
 }

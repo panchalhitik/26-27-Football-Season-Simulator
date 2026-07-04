@@ -21,6 +21,9 @@ export const TACTIC_TABLE: Record<FormationShape, { openness: number; defensiveL
   '4-2-2-2':         { openness: +0.5, defensiveLean: -0.3 },
   '3-5-2':           { openness: +0.1, defensiveLean:  0.0 },
   '3-4-3':           { openness: +0.7, defensiveLean: -0.4 },
+  '5-3-2':           { openness: -0.3, defensiveLean: +0.5 },
+  '5-4-1':           { openness: -0.6, defensiveLean: +0.7 },
+  '4-5-1':           { openness: -0.4, defensiveLean: +0.4 },
 };
 
 /** Symmetric "tempo" term in LOG space — both sides get the same sign. */

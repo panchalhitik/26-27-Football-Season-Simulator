@@ -4,7 +4,7 @@ import { ChooseClubScreen } from '@/screens/ChooseClubScreen';
 import { BoardroomScreen } from '@/screens/BoardroomScreen';
 import { ManagerDecisionScreen } from '@/screens/ManagerDecisionScreen';
 import { WindowScreen } from '@/screens/WindowScreen';
-import { SimulatingScreen } from '@/screens/SimulatingScreen';
+import { MatchdayScreen } from '@/screens/MatchdayScreen';
 import { MidSeasonScreen } from '@/screens/MidSeasonScreen';
 import { FinalReportScreen } from '@/screens/FinalReportScreen';
 
@@ -18,9 +18,9 @@ export function App() {
     case 'manager-decision':   return <ManagerDecisionScreen />;
     case 'window':             return <WindowScreen />;
     case 'january-window':     return <WindowScreen />;
-    case 'simulating-h1':      return <SimulatingScreen half="h1" />;
+    case 'simulating-h1':      return <MatchdayScreen half="h1" />;
     case 'mid-season':         return <MidSeasonScreen />;
-    case 'simulating-h2':      return <SimulatingScreen half="h2" />;
+    case 'simulating-h2':      return <MatchdayScreen half="h2" />;
     case 'final-report':       return <FinalReportScreen />;
     default:                   return <LandingScreen />;
   }
