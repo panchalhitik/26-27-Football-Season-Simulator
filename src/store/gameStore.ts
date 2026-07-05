@@ -257,11 +257,11 @@ const LEAGUE_SIZE: Record<string, number> = {
  * getting a free chem multiplier no opponent has — every team starts the
  * season with a realistic-but-imperfect cohesion number.
  */
-function syntheticOpponentChem(clubId: string): number {
+function syntheticOpponentChem(clubId: string, lo = 0.60, hi = 0.82): number {
   let h = 0;
   for (let i = 0; i < clubId.length; i++) h = (h * 31 + clubId.charCodeAt(i)) | 0;
   const t = ((h >>> 0) % 1000) / 1000;
-  return 0.55 + 0.30 * t;
+  return lo + (hi - lo) * t;
 }
 
 /**
@@ -270,6 +270,20 @@ function syntheticOpponentChem(clubId: string): number {
  */
 function syntheticOpponentMor(baseAttack: number): number {
   return Math.max(20, Math.min(95, (baseAttack - 55) * 2.5));
+}
+
+/**
+ * Deterministic formation per opponent so the tactical matchup layer
+ * (tempo + tilt) is live for EVERY fixture, not just the user's shape vs
+ * a wall of 4-3-3s. Big clubs pick from front-foot shapes; the rest also
+ * park buses.
+ */
+const PEER_SHAPES: FormationShape[] = ['4-3-3', '4-2-3-1', '3-4-3', '4-4-2', '3-5-2'];
+const FILLER_SHAPES: FormationShape[] = ['4-2-3-1', '4-4-2', '4-5-1', '5-4-1', '5-3-2', '4-1-4-1', '3-5-2'];
+function syntheticFormation(clubId: string, shapes: FormationShape[]): FormationShape {
+  let h = 7;
+  for (let i = 0; i < clubId.length; i++) h = (h * 33 + clubId.charCodeAt(i)) | 0;
+  return shapes[(h >>> 0) % shapes.length] ?? '4-4-2';
 }
 
 function buildLeagueStrengths(args: {
@@ -307,14 +321,17 @@ function buildLeagueStrengths(args: {
   for (const c of Object.values(CLUBS_BY_ID)) {
     if (c.id === args.userClubId) continue;
     if (c.league !== targetLeague) continue;
+    // Rival big clubs are the real obstacle: settled squads (high chem),
+    // elite managers (reputation-based MOR), and their own tactical shapes.
     peerClubs.push({
       clubId: c.id,
       attack: c.baseAttack,
       defense: c.baseDefense,
       homeBoost: 4 + (c.difficulty - 3) * 0.5,
-      chemistry01: syntheticOpponentChem(c.id),
+      chemistry01: syntheticOpponentChem(c.id, 0.78, 0.95),
       managerMod: 0,
-      mor: syntheticOpponentMor(c.baseAttack),
+      mor: Math.max(45, Math.min(92, c.reputation)),
+      formationShape: syntheticFormation(c.id, PEER_SHAPES),
     });
   }
 
@@ -329,6 +346,7 @@ function buildLeagueStrengths(args: {
     chemistry01: syntheticOpponentChem(f.id),
     managerMod: 0,
     mor: syntheticOpponentMor(f.attack),
+    formationShape: syntheticFormation(f.id, FILLER_SHAPES),
   }));
 
   return [userStrengths, ...peerClubs, ...used];

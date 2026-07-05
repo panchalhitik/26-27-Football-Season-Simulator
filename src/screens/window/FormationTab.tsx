@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { FORMATIONS, FORMATIONS_BY_SHAPE, PLAYERS_BY_ID } from '@/data';
 import { positionAffinity } from '@/engine';
+import { conventionality } from '@/engine/shape';
+import { TACTIC_TABLE } from '@/sim/tactics';
 import { useGameStore } from '@/store';
 import { PositionBadge } from '@/components/PositionBadge';
 import type { FormationShape, Player, PlayerId, PositionGroup } from '@/types';
@@ -22,6 +24,30 @@ export function FormationTab() {
 
   const formation = FORMATIONS_BY_SHAPE[formationShape];
   const assignments = xi?.assignments ?? {};
+
+  // Fluid layout: custom slot coordinates override the preset. Positions are
+  // re-derived from where each slot sits (see engine/shape.ts).
+  const slots =
+    xi?.customSlots && xi.customSlots.length === formation.slots.length
+      ? xi.customSlots
+      : formation.slots;
+  const shapeVerdict = useMemo(() => conventionality(slots), [slots]);
+  const tactics = TACTIC_TABLE[formationShape] ?? { openness: 0, defensiveLean: 0 };
+
+  // Slot repositioning (pointer drag on the ✥ handle).
+  const pitchRef = useRef<HTMLDivElement | null>(null);
+  const [moveIdx, setMoveIdx] = useState<number | null>(null);
+  const [movePos, setMovePos] = useState<{ x: number; y: number } | null>(null);
+
+  const pctFromPointer = (e: React.PointerEvent): { x: number; y: number } | null => {
+    const el = pitchRef.current;
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return {
+      x: ((e.clientX - r.left) / r.width) * 100,
+      y: ((e.clientY - r.top) / r.height) * 100,
+    };
+  };
 
   const squadById = useMemo(() => {
     const map: Record<string, Player> = {};
@@ -117,7 +143,9 @@ export function FormationTab() {
       {/* SHAPE PICKER */}
       <div className="card mb-5">
         <div className="flex items-center justify-between mb-3">
-          <div className="text-mono uppercase text-[10px] tracking-widest text-white/40">Shape · 9 options</div>
+          <div className="text-mono uppercase text-[10px] tracking-widest text-white/40">
+            Shape · {FORMATIONS.length} options
+          </div>
           <div className="text-mono text-[11px] text-white/55">{formation.description}</div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -131,6 +159,41 @@ export function FormationTab() {
             </button>
           ))}
         </div>
+
+        {/* How this shape plays — feeds the match engine's tempo + tilt terms */}
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-2 mt-4 pt-3 border-t border-white/10">
+          <TacticGauge
+            label="Openness"
+            value={tactics.openness}
+            lowLabel="Cagey"
+            highLabel="End-to-end"
+            hint="Open shapes score AND concede more"
+          />
+          <TacticGauge
+            label="Tilt"
+            value={-tactics.defensiveLean}
+            lowLabel="Defensive"
+            highLabel="Attacking"
+            hint="Attacking tilt trades goals conceded for goals scored"
+          />
+          <div className="flex items-center gap-2 ml-auto">
+            <span className={`text-mono text-[10px] uppercase tracking-widest
+              ${shapeVerdict.score01 >= 0.8 ? 'text-[color:var(--color-accent-green)]' : shapeVerdict.score01 >= 0.6 ? 'text-amber-300' : 'text-rose-300'}`}>
+              {shapeVerdict.verdict}
+            </span>
+            {xi?.customSlots && (
+              <button type="button" className="btn-ghost text-xs py-1"
+                onClick={() => useGameStore.getState().resetSlots()}>
+                Reset shape
+              </button>
+            )}
+          </div>
+        </div>
+        {shapeVerdict.issues.length > 0 && (
+          <div className="text-rose-300/85 text-[12px] mt-2">
+            ⚠ {shapeVerdict.issues.join(' · ')} — team plays at {Math.round(shapeVerdict.multiplier * 100)}% strength
+          </div>
+        )}
       </div>
 
       {/* CHEM + ACTIONS HEADER */}
@@ -155,7 +218,7 @@ export function FormationTab() {
             Starting XI · {Object.keys(assignments).filter((k) => assignments[Number(k)]).length}/11
           </div>
           <ol className="space-y-1.5">
-            {formation.slots.map((slot, idx) => {
+            {slots.map((slot, idx) => {
               const player = startingXI[idx];
               const aff = player ? positionAffinity(slot.position, player.position) : 0;
               return (
@@ -177,7 +240,22 @@ export function FormationTab() {
           className="card relative"
           onDragOver={(e) => e.preventDefault()}
         >
-          <div className="relative w-full aspect-[3/4] bg-emerald-950/40 rounded-lg overflow-hidden border border-emerald-700/30">
+          <div
+            ref={pitchRef}
+            className="relative w-full aspect-[3/4] bg-emerald-950/40 rounded-lg overflow-hidden border border-emerald-700/30 touch-none"
+            onPointerMove={(e) => {
+              if (moveIdx == null) return;
+              const p = pctFromPointer(e);
+              if (p) setMovePos(p);
+            }}
+            onPointerUp={(e) => {
+              if (moveIdx == null) return;
+              const p = pctFromPointer(e);
+              if (p) useGameStore.getState().moveSlot(moveIdx, p.x, p.y);
+              setMoveIdx(null);
+              setMovePos(null);
+            }}
+          >
             <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
               <rect x="2" y="2" width="96" height="96" fill="none" stroke="rgba(20, 180, 140, 0.35)" strokeWidth="0.3" />
               <line x1="2" y1="50" x2="98" y2="50" stroke="rgba(20, 180, 140, 0.35)" strokeWidth="0.3" />
@@ -186,15 +264,16 @@ export function FormationTab() {
               <rect x="28" y="84" width="44" height="14" fill="none" stroke="rgba(20, 180, 140, 0.35)" strokeWidth="0.3" />
             </svg>
 
-            {formation.slots.map((slot, idx) => {
+            {slots.map((slot, idx) => {
               const player = startingXI[idx];
               const aff = player ? positionAffinity(slot.position, player.position) : 1;
               const isOver = overSlot === idx;
+              const pos = moveIdx === idx && movePos ? movePos : { x: slot.x, y: slot.y };
               return (
                 <div
                   key={idx}
                   className="absolute -translate-x-1/2 -translate-y-1/2"
-                  style={{ left: `${slot.x}%`, top: `${slot.y}%` }}
+                  style={{ left: `${pos.x}%`, top: `${pos.y}%`, zIndex: moveIdx === idx ? 10 : 1 }}
                   onDragOver={(e) => { e.preventDefault(); setOverSlot(idx); }}
                   onDragLeave={() => setOverSlot((cur) => (cur === idx ? null : cur))}
                   onDrop={(e) => {
@@ -210,13 +289,19 @@ export function FormationTab() {
                     affinity={aff}
                     highlight={isOver}
                     onDragStart={(e) => player && onDragStart(e, { playerId: player.id, fromSlot: idx })}
+                    canReposition={Boolean(xi)}
+                    onGrabPosition={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setMoveIdx(idx);
+                    }}
                   />
                 </div>
               );
             })}
           </div>
           <p className="text-mono text-[10px] uppercase tracking-widest text-white/35 mt-3">
-            Drag players to reshuffle · drop on reserves to remove from the XI
+            Drag players to reshuffle · drag the ✥ handle to move a position anywhere · unconventional shapes cost strength
           </p>
         </div>
 
@@ -294,16 +379,18 @@ function BenchTile({
 }
 
 function PitchSlot({
-  slotPosition, player, affinity, highlight, onDragStart,
+  slotPosition, player, affinity, highlight, onDragStart, canReposition, onGrabPosition,
 }: {
   slotPosition: Player['position'];
   player: Player | undefined;
   affinity: number;
   highlight: boolean;
   onDragStart: (e: React.DragEvent) => void;
+  canReposition?: boolean;
+  onGrabPosition?: (e: React.PointerEvent) => void;
 }) {
   const empty = !player;
-  const base = 'rounded-md px-2 py-1.5 text-center min-w-[96px] backdrop-blur-sm transition select-none';
+  const base = 'relative rounded-md px-2 py-1.5 text-center min-w-[96px] backdrop-blur-sm transition select-none';
   const filled = affinity === 1
     ? 'bg-emerald-500/30 border border-emerald-400/60'
     : affinity >= 0.6
@@ -319,6 +406,17 @@ function PitchSlot({
       onDragStart={onDragStart}
       className={`${base} ${empty ? emptyStyle : filled} ${ring} ${empty ? '' : 'cursor-grab active:cursor-grabbing'}`}
     >
+      {canReposition ? (
+        <span
+          className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-black/70 border border-white/30 text-white/80
+            text-[10px] leading-[18px] cursor-move hover:border-[color:var(--color-accent-green)] hover:text-[color:var(--color-accent-green)]"
+          title="Drag to move this position anywhere on the pitch"
+          onPointerDown={onGrabPosition}
+          draggable={false}
+        >
+          ✥
+        </span>
+      ) : null}
       <div className="text-[10px] font-bold tracking-wider uppercase">
         {slotPosition}
       </div>
@@ -330,6 +428,28 @@ function PitchSlot({
           {player.position} · {player.rating}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function TacticGauge({
+  label, value, lowLabel, highLabel, hint,
+}: { label: string; value: number; lowLabel: string; highLabel: string; hint: string }) {
+  // value ∈ [-1, 1] → position on the gauge
+  const pct = ((value + 1) / 2) * 100;
+  return (
+    <div title={hint} className="min-w-[200px]">
+      <div className="flex justify-between text-mono text-[9px] uppercase tracking-widest text-white/40">
+        <span>{lowLabel}</span>
+        <span className="text-white/70">{label}</span>
+        <span>{highLabel}</span>
+      </div>
+      <div className="relative h-1.5 rounded-full bg-white/10 mt-1">
+        <span
+          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-[color:var(--color-accent-green)] shadow-[0_0_8px_rgba(38,247,168,0.7)]"
+          style={{ left: `${pct}%` }}
+        />
+      </div>
     </div>
   );
 }
