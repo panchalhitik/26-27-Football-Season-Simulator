@@ -380,7 +380,8 @@ function deriveUserRecord(s: GameStateSlice): {
   let xi = s.xi ?? engineAutoPickXI(squad, formation);
 
   // Injured (or sold) starters get auto-replaced by the best available fit;
-  // the rest of the user's lineup is preserved.
+  // the rest of the user's lineup is preserved. When the layout is fluid,
+  // replacements are scored against the DRAGGED slot roles.
   const unavailable = new Set(Object.keys(s.injuries));
   const squadIdSet = new Set(s.squadIds);
   const needsRepair = Object.values(xi.assignments).some(
@@ -390,7 +391,11 @@ function deriveUserRecord(s: GameStateSlice): {
     for (const pid of Object.values(xi.assignments)) {
       if (!squadIdSet.has(pid)) unavailable.add(pid);
     }
-    xi = fillVacantSlots({ squad, formation, xi, unavailable });
+    const repairFormation =
+      xi.customSlots && xi.customSlots.length === formation.slots.length
+        ? { ...formation, slots: xi.customSlots }
+        : formation;
+    xi = fillVacantSlots({ squad, formation: repairFormation, xi, unavailable });
   }
 
   // Fluid layout: chemistry against derived positions + conventionality tax.
@@ -591,7 +596,14 @@ export const useGameStore = create<GameStore>()(
       assignToSlot(slotIndex, playerId) {
         const { xi, formationShape } = get();
         const formation = FORMATIONS_BY_SHAPE[formationShape];
-        const slot = formation.slots[slotIndex];
+        // A fluid custom layout must survive player swaps — score chemistry
+        // against the dragged slot positions, not the preset.
+        const customSlots =
+          xi?.customSlots && xi.customSlots.length === formation.slots.length
+            ? xi.customSlots
+            : null;
+        const slots = customSlots ?? formation.slots;
+        const slot = slots[slotIndex];
         if (!slot) return;
         const player = PLAYERS_BY_ID[playerId];
         if (!player) return;
@@ -601,19 +613,36 @@ export const useGameStore = create<GameStore>()(
         const squadById = Object.fromEntries(
           get().squadIds.map((id) => [id, PLAYERS_BY_ID[id]!]).filter(([, p]) => Boolean(p)),
         ) as Record<string, NonNullable<(typeof PLAYERS_BY_ID)[string]>>;
-        const partial: XI = { shape: formationShape, assignments: nextAssignments, chemistry: 0, exactMatches: 0 };
-        const chem = chemistryFor({ squadById, xi: partial, formation });
+        const partial: XI = {
+          shape: formationShape,
+          assignments: nextAssignments,
+          chemistry: 0,
+          exactMatches: 0,
+          ...(customSlots ? { customSlots } : {}),
+        };
+        const chem = chemistryFor({ squadById, xi: partial, formation: { ...formation, slots } });
         set({ xi: { ...partial, chemistry: chem.chemistry, exactMatches: chem.exactMatches } });
       },
 
       setXI(assignments) {
-        const { formationShape, squadIds } = get();
+        const { xi, formationShape, squadIds } = get();
         const formation = FORMATIONS_BY_SHAPE[formationShape];
+        const customSlots =
+          xi?.customSlots && xi.customSlots.length === formation.slots.length
+            ? xi.customSlots
+            : null;
+        const slots = customSlots ?? formation.slots;
         const squadById = Object.fromEntries(
           squadIds.map((id) => [id, PLAYERS_BY_ID[id]!]).filter(([, p]) => Boolean(p)),
         ) as Record<string, NonNullable<(typeof PLAYERS_BY_ID)[string]>>;
-        const partial: XI = { shape: formationShape, assignments, chemistry: 0, exactMatches: 0 };
-        const chem = chemistryFor({ squadById, xi: partial, formation });
+        const partial: XI = {
+          shape: formationShape,
+          assignments,
+          chemistry: 0,
+          exactMatches: 0,
+          ...(customSlots ? { customSlots } : {}),
+        };
+        const chem = chemistryFor({ squadById, xi: partial, formation: { ...formation, slots } });
         set({ xi: { ...partial, chemistry: chem.chemistry, exactMatches: chem.exactMatches } });
       },
 
