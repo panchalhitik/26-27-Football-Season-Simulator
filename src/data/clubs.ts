@@ -88,9 +88,9 @@ export const CLUBS: Club[] = [
     wageRoomK: 4000,
     storyline: '"The £440M hangover. Fix it."',
     boardLetter:
-      'A historic spend, an underwhelming title defence. The chairman wants you to integrate the signings, not buy your way out of the problem. Trophies expected.',
+      'A historic spend, an underwhelming title defence — and Slot paid for it with his job. Iraola arrives to press the £440M squad back into shape. Integrate the signings, don\'t buy your way out of the problem. Trophies expected.',
     difficulty: 4,
-    startingManagerId: 'm-slot',
+    startingManagerId: 'm-iraola',
     objectives: [
       { kind: 'PL', label: 'Premier League', targetPosition: 2 },
       { kind: 'UCL', label: 'UCL', targetRound: 'SF' },

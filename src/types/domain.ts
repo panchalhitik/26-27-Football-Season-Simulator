@@ -71,6 +71,12 @@ export interface Manager {
   style: ManagerStyle;
   salaryMPerYr: number;
   compensationFeeM: number;  // cost to prise away
+  /**
+   * Career honours on a 0–100 scale — the LegacyScore axis of the Dugout
+   * OVR. Serial winners ~90, proven title winners ~70s, promising coaches
+   * without major silverware ~50s, unproven ~40.
+   */
+  pedigree: number;
   pros: string[];
   cons: string[];
   description?: string;

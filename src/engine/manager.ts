@@ -7,19 +7,20 @@ import type { Manager } from '@/types';
  * legacy must NOT be collapsed into one signal — that's how bargains and
  * busts exist):
  *
- *   MoneyScore  : pool-percentile of log(1 + compFee + salary)
- *   LegacyScore : pool-percentile of (0.6·prosCount + 0.25·ageProxy + 0.15·tagBonus)
+ *   LegacyScore : the explicit `pedigree` field, used DIRECTLY — it is
+ *                 already authored on a 0-100 scale (serial winners ~90,
+ *                 young coaches doing well ~60-75, unproven ~40-50), so
+ *                 re-ranking it would only distort the authored ordering.
+ *   MoneyScore  : pool-percentile of log(1 + 2·salary + compFee). Salary is
+ *                 weighted double so a FREE AGENT legend (fee 0) is read as
+ *                 "commands a top salary", not "the market rejected him".
  *
  * MOR = MONEY_WEIGHT × MoneyScore + (1 − MONEY_WEIGHT) × LegacyScore
+ * Legacy dominates heavily: silverware is what the board respects; market
+ * heat only nudges.
  */
 
-export const MONEY_WEIGHT = 0.55;
-
-const LEGACY_KEYWORDS = [
-  'champion', 'champions', 'winner', 'trophy', 'trophies', 'treble',
-  'decorated', 'serial', 'pedigree', 'cl winner', 'ucl', 'title',
-  'cup', 'league', 'experience', 'legend', 'historic',
-];
+export const MONEY_WEIGHT = 0.1;
 
 /** Pure: same managers pool → same scores. */
 export function computeManagerRatings(pool: Manager[]): {
@@ -28,33 +29,21 @@ export function computeManagerRatings(pool: Manager[]): {
   if (pool.length === 0) return { byId: {} };
 
   // Raw signals
-  const money: number[] = pool.map((m) => Math.log(1 + Math.max(0, m.compensationFeeM) + Math.max(0, m.salaryMPerYr)));
-  const legacy: number[] = pool.map(legacyRaw);
-
-  // Pool-percentile normalization to 0..100
+  const money: number[] = pool.map((m) =>
+    Math.log(1 + 2 * Math.max(0, m.salaryMPerYr) + Math.max(0, m.compensationFeeM)),
+  );
+  // Only money is percentile-normalised; pedigree is already 0-100.
   const moneyPct = percentileNormalise(money);
-  const legacyPct = percentileNormalise(legacy);
 
   const byId: Record<string, { mor: number; moneyScore: number; legacyScore: number }> = {};
   pool.forEach((m, i) => {
     const ms = moneyPct[i] ?? 50;
-    const ls = legacyPct[i] ?? 50;
+    const ls = Math.max(0, Math.min(100, m.pedigree));
     const mor = MONEY_WEIGHT * ms + (1 - MONEY_WEIGHT) * ls;
     byId[m.id] = { mor, moneyScore: ms, legacyScore: ls };
   });
 
   return { byId };
-}
-
-function legacyRaw(m: Manager): number {
-  const prosCount = m.pros.length;
-  // Experience proxy: peaks at 50; older + younger get less here
-  const ageDist = Math.abs(m.age - 50);
-  const experienceProxy = Math.max(0, 20 - ageDist);
-  // Tag bonus: keywords in pros + description
-  const haystack = [m.description ?? '', ...m.pros, ...m.cons].join(' ').toLowerCase();
-  const tagBonus = LEGACY_KEYWORDS.reduce((acc, kw) => acc + (haystack.includes(kw) ? 1 : 0), 0);
-  return 0.6 * prosCount + 0.25 * experienceProxy + 0.15 * tagBonus;
 }
 
 function percentileNormalise(values: number[]): number[] {

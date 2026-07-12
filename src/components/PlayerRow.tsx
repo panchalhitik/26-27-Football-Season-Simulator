@@ -19,20 +19,20 @@ export function PlayerRow({ player, action, onAction, showClub, disabledMsg }: P
     <div
       className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 transition
         ${locked
-          ? 'border-white/5 bg-[color:var(--color-bg-panel)]/30 opacity-60'
-          : 'border-white/5 bg-[color:var(--color-bg-panel)]/60 hover:border-white/15'
+          ? 'border-white/5 bg-black/20 opacity-60'
+          : 'border-white/10 bg-black/30 hover:bg-white/5 hover:border-[color:var(--color-accent-pink)]/40'
         }`}
     >
       <PositionBadge position={player.position} />
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 text-sm font-medium truncate">
+        <div className="flex items-center gap-2 text-sm font-semibold truncate">
           <span className="truncate">{player.name}</span>
           {player.isStar ? (
             <span className="pill bg-pink-500/15 text-pink-300 border border-pink-500/40">★ STAR</span>
           ) : null}
         </div>
         <div className="text-mono text-[11px] text-white/45 tracking-wider">
-          {player.age} · £{player.marketValueM}M · £{player.wageK}k/wk
+          {player.age} · £{player.marketValueM}M <span className="text-white/25">|</span> £{player.wageK}k/wk
           {showClub ? ` · ${player.clubId.toUpperCase()}` : ''}
         </div>
         {disabledMsg ? (
@@ -40,6 +40,9 @@ export function PlayerRow({ player, action, onAction, showClub, disabledMsg }: P
             {disabledMsg}
           </div>
         ) : null}
+      </div>
+      <div className="text-mono text-[13px] text-[color:var(--color-accent-amber)] w-8 text-right">
+        {player.rating}
       </div>
       {action === 'sell' && (
         <button className="btn-sell" onClick={onAction} type="button" disabled={locked}>
